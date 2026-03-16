@@ -96,11 +96,11 @@
         const is565 = file.name.endsWith('.565');
 
         const isDeprecatedFormat = is332 || is565;
-        const filesignature = String.fromCharCode(
+        const filesignature = isDeprecatedFormat ? ' ' : String.fromCharCode(
             view.getUint8(0),
             view.getUint8(1)
         );
-        const filetype = String.fromCharCode(
+        const filetype = isDeprecatedFormat ? ' ' : String.fromCharCode(
             view.getUint8(2),
             view.getUint8(3)
         );
@@ -109,7 +109,7 @@
         const w = isDeprecatedFormat ? view.getUint8(0) : view.getUint16(4, true);
         const h = isDeprecatedFormat ? view.getUint8(1) : view.getUint16(6, true);
         const pixelsPerFrame = w * h;
-        const bpp = (is565 || filetype === 'b2') ? 2 : (is332 || filetype === 'b1') ? 1 : -1;
+        const bpp = (filetype === 'b3') ? 3 : (is565 || filetype === 'b2') ? 2 : (is332 || filetype === 'b1') ? 1 : -1;
         const totalDataBytes = buffer.byteLength - headerSize;
         const bytesPerFrame = pixelsPerFrame * bpp;
         const frames = Math.floor(totalDataBytes / bytesPerFrame);
@@ -123,7 +123,7 @@
 
         status.innerHTML = `
             RES: ${w}x${h} | FRAMES: ${frames}<br>
-            MODE: ${isDeprecatedFormat ? 'Deprecated' : ''} ${bpp === 1 ? '8-bit RGB332' : '16-bit RGB565'}
+            MODE: ${isDeprecatedFormat ? 'Deprecated' : ''} ${bpp === 1 ? '8-bit RGB332' : bpp === 2 ? '16-bit RGB565' : '24-bit RGB888'}
         `;
 
         canvas.width = w;
@@ -167,14 +167,18 @@
                 b = byte & 0x03; // mask out the 2 bits of blue at the end of the byte
                 b |= b << 2; // extend 0-3 range to 0-15
                 b |= b << 4;
-            } else {
+            } else if (bpp === 2) {
                 const word = view.getUint8(frameOffset + (i * 2)) << 8
                 | view.getUint8(frameOffset + (i * 2) + 1);
 
                 r = (word & 0xF800) >> 8;
                 g = (word & 0x07E0) >> 3;
                 b = (word & 0x001F) << 3;
-            }
+            } else if (bpp === 3) {
+            r = view.getUint8(frameOffset + (i * 3));
+            g = view.getUint8(frameOffset + (i * 3) + 1);
+            b = view.getUint8(frameOffset + (i * 3) + 2);
+        }
 
             const pxIdx = i * 4;
             imageData.data[pxIdx]     = r;
