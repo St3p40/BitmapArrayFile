@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitmap array player</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="bitmap_array.js"></script>
+</head>
+<body>
+
+<div id="container">
+    <h2>Bitmap Array player</h2>
+
+    <div class="control-group">
+        <label>Select .bna File:</label>
+        <input type="file" id="fileInput" accept=".bna">
+    </div>
+
+    <div class="control-group">
+        <label>Playback Speed (FPS): <span id="fpsVal">10</span></label>
+        <input type="range" id="speedSlider" min="1" max="120" value="10">
+    </div>
+
+    <div class="info" id="status">Waiting for file...</div>
+
+    <canvas id="canvas"></canvas>
+</div>
+
+<script>
+        const player = new BnaPlayer(document.getElementById('canvas'));
+        const status = document.getElementById('status');
+
+        speedSlider.oninput = () => {
+        fpsVal.innerText = speedSlider.value;
+        player.play(speedSlider.value);
+        };
+
+        document.getElementById('fileInput').onchange = async (e) => {
+            const meta = await player.load(e.target.files[0]);
+            status.innerText = `Res: ${meta.w}x${meta.h} | Frames: ${meta.frames}
+            Type: ${meta.bpp === 1 ? '8-bit RGB332' : meta.bpp === 2 ? '16-bit RGB565' : '24-bit RGB888'}`;
+            player.play(speedSlider.value);
+        };
+</script>
+</body>
+</html>
