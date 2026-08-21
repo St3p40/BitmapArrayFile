@@ -1,3 +1,85 @@
+function readBits(view, bitOffset, count) {
+    let value = 0;
+    let done = 0;
+
+    while (done < count) {
+        const bitInByte = (bitOffset + done) & 7;
+        const take = Math.min(8 - bitInByte, count - done);
+        const byte = view.getUint8((bitOffset + done) >> 3);
+        const chunk = (byte >> (8 - bitInByte - take)) & ((1 << take) - 1);
+
+        value = (value * (1 << take)) + chunk;
+        done += take;
+    }
+    return value;
+}
+
+function writeBits(bytes, bitOffset, count, value) {
+    let done = 0;
+
+    while (done < count) {
+        const bitInByte = (bitOffset + done) & 7;
+        const take = Math.min(8 - bitInByte, count - done);
+        const idx = (bitOffset + done) >> 3;
+        const shift = 8 - bitInByte - take;
+        const left = count - done - take;
+        const chunk = Math.floor(value / (2 ** left)) & ((1 << take) - 1);
+        const mask = ((1 << take) - 1) << shift;
+
+        bytes[idx] = (bytes[idx] & ~mask) | (chunk << shift);
+        done += take;
+    }
+}
+
+const BNA_TYPES = {
+    bw: {
+        bits: 8,
+        name: "8-bit BW",
+        toRGB(pixel) { return [pixel, pixel, pixel] },
+        fromRGB: (r, g, b) => ( Math.max(r, g, b))
+    },
+    b1: {
+        bits: 8,
+        name: "8-bit RGB332",
+        toRGB(pixel) {
+            let r = pixel & 0xe0;
+            r |= (r >> 3);
+            r |= (r >> 3);
+            let g = pixel & 0x1c;
+            g |= (g << 3) | (g >> 3);
+            let b = pixel & 0x03;
+            b |= b << 2;
+            b |= b << 4;
+            return [r, g, b];
+        },
+        fromRGB: (r, g, b) => (r & 0xE0) | ((g & 0xE0) >> 3) | ((b & 0xC0) >> 6)
+    },
+    b2: {
+        bits: 16,
+        name: "16-bit RGB565",
+        toRGB(pixel) {
+            let r = (pixel & 0xF800) >> 8;
+            r |= r >> 5;
+            let g = (pixel & 0x07E0) >> 3;
+            g |= g >> 6;
+            let b = (pixel & 0x001F) << 3;
+            b |= b >> 5;
+            return [r, g, b];
+        },
+        fromRGB: (r, g, b) => ((r & 0xf8) << 8) | ((g & 0xFC) << 3) | ((b & 0xF8) >> 3)
+    },
+    b3: {
+        bits: 24,
+        name: "24-bit RGB888",
+        toRGB(pixel) { return [(pixel >> 16) & 0xff, (pixel >> 8) & 0xff, pixel & 0xff] },
+        fromRGB: (r, g, b) => (r << 16) | (g << 8) | b
+    }
+};
+
+function frameBytes(width, height, bits) {
+    return Math.ceil((width * height * bits) / 8);
+}
+
 class BnaPlayer {
     constructor(canvas) {
         this.canvas = canvas;
@@ -9,21 +91,33 @@ class BnaPlayer {
     }
 
     async load(fileOrBuffer) {
+        this.stop();
+        this.meta = null;
+
         const buffer = fileOrBuffer instanceof ArrayBuffer
             ? fileOrBuffer
             : await fileOrBuffer.arrayBuffer();
+
+        if (buffer.byteLength < 8) throw new Error("File is too small to hold a header");
+
         const view = new DataView(buffer);
         const signature = String.fromCharCode(view.getUint8(0), view.getUint8(1));
         const type = String.fromCharCode(view.getUint8(2), view.getUint8(3));
 
         if (signature !== 'bA') throw new Error("Invalid file signature");
 
-        const bpp = type === 'b3' ? 3 : type === 'b2' ? 2 : type === 'b1' ? 1 : -1;
+        const codec = BNA_TYPES[type];
+        if (!codec) throw new Error(`Unsupported type "${type}"`);
+
         const w = view.getUint16(4, true);
         const h = view.getUint16(6, true);
-        const frames = Math.floor((buffer.byteLength - 8) / (w * h * bpp));
+        if (w === 0 || h === 0) throw new Error("Width and height must be non-zero");
 
-        this.meta = { buffer, view, w, h, bpp, frames, headerSize: 8 };
+        const frameSize = frameBytes(w, h, codec.bits);
+        const frames = Math.floor((buffer.byteLength - 8) / frameSize);
+        if (frames < 1) throw new Error(`File holds no complete ${w}x${h} frame`);
+
+        this.meta = { buffer, view, w, h, type, codec, frameSize, frames, headerSize: 8 };
         this.canvas.width = w;
         this.canvas.height = h;
         this.frameIdx = 0;
@@ -33,36 +127,14 @@ class BnaPlayer {
 
     renderFrame(idx) {
         if (!this.meta) return;
-        const { headerSize, w, h, bpp, view, frames } = this.meta;
+        const { headerSize, w, h, codec, view, frames, frameSize } = this.meta;
         const imageData = this.ctx.createImageData(w, h);
         const pixelsPerFrame = w * h;
-        const frameOffset = headerSize + ((idx % frames) * pixelsPerFrame * bpp);
+        const frameBit = (headerSize + ((idx % frames) * frameSize)) * 8;
 
         for (let i = 0; i < pixelsPerFrame; i++) {
-            let r, g, b;
+            const [r, g, b] = codec.toRGB(readBits(view, frameBit + (i * codec.bits), codec.bits));
             const pxIdx = i * 4;
-
-            if (bpp === 1) { // RGB332
-                const byte = view.getUint8(frameOffset + i);
-                r = byte & 0xe0; // mask out the 3 bits of red at the start of the byte
-                r |= (r >> 3); // extend limited 0-224 range to 0-252
-                r |= (r >> 3); // extend limited 0-252 range to 0-255
-                g = byte & 0x1c; // mask out the 3 bits of green in the middle of the byte
-                g |= (g << 3) | (r >> 3); // extend limited 0-34 range to 0-255
-                b = byte & 0x03; // mask out the 2 bits of blue at the end of the byte
-                b |= b << 2; // extend 0-3 range to 0-15
-                b |= b << 4;
-            } else if (bpp === 2) { // RGB565
-                const word = view.getUint8(frameOffset + (i * 2)) << 8
-                | view.getUint8(frameOffset + (i * 2) + 1);
-                r = (word & 0xF800) >> 8;
-                g = (word & 0x07E0) >> 3;
-                b = (word & 0x001F) << 3;
-            } else { // RGB888
-                r = view.getUint8(frameOffset + (i * 3));
-                g = view.getUint8(frameOffset + (i * 3) + 1);
-                b = view.getUint8(frameOffset + (i * 3) + 2);
-            }
 
             imageData.data[pxIdx] = r;
             imageData.data[pxIdx + 1] = g;
@@ -74,7 +146,11 @@ class BnaPlayer {
 
     play(fps = this.fps) {
         this.stop();
-        this.fps = fps;
+        if (!this.meta) return;
+
+        const rate = Number(fps);
+        if (rate > 0) this.fps = rate;
+
         this.timer = setInterval(() => {
             this.renderFrame(this.frameIdx);
             this.frameIdx = (this.frameIdx + 1) % this.meta.frames;
@@ -83,6 +159,7 @@ class BnaPlayer {
 
     stop() {
         if (this.timer) clearInterval(this.timer);
+        this.timer = null;
     }
 }
 
@@ -92,64 +169,58 @@ class BnaEncoder {
      * @param {File} file - The GIF file
      * @param {number} width - Target width
      * @param {number} height - Target height
-     * @param {string} type - type: 'b1' (RGB332), 'b2' (RGB565), 'b3' (RGB888)
+     * @param {string} type - type code from BNA_TYPES, for example 'b1' (RGB332)
      */
     static async fromGif(file, width, height, type) {
+        const codec = BNA_TYPES[type];
+        if (!codec) throw new Error(`Unsupported type "${type}"`);
+        if (!Number.isInteger(width) || !Number.isInteger(height)
+            || width < 1 || height < 1 || width > 65535 || height > 65535) {
+            throw new Error("Width and height must be 1-65535");
+        }
+        if (typeof ImageDecoder === 'undefined') throw new Error("This browser has no ImageDecoder");
+
         const decoder = new ImageDecoder({ data: file.stream(), type: "image/gif" });
-        await decoder.completed;
-        const totalFrames = decoder.tracks.selectedTrack.frameCount;
+        try {
+            await decoder.completed;
+            const totalFrames = decoder.tracks.selectedTrack.frameCount;
 
-        const bpp = (type === 'b1') ? 1 : (type === 'b2') ? 2 : (type === 'b3') ? 3 : -1;
-        const bytesPerFrame = width * height * bpp;
-        const totalSize = 8 + (bytesPerFrame * totalFrames);
-        const buffer = new ArrayBuffer(totalSize);
-        const view = new DataView(buffer);
-        const uint8 = new Uint8Array(buffer);
+            const frameSize = frameBytes(width, height, codec.bits);
+            const buffer = new ArrayBuffer(8 + (frameSize * totalFrames));
+            const view = new DataView(buffer);
+            const uint8 = new Uint8Array(buffer);
 
-        // Header: "bA" + type + width + height
-        uint8[0] = 0x62; // b
-        uint8[1] = 0x41; // A
-        uint8[2] = type.charCodeAt(0);
-        uint8[3] = type.charCodeAt(1);
+            // Header: "bA" + type + width + height
+            uint8[0] = 0x62; // b
+            uint8[1] = 0x41; // A
+            uint8[2] = type.charCodeAt(0);
+            uint8[3] = type.charCodeAt(1);
 
-        view.setUint16(4, width, true);
-        view.setUint16(6, height, true);
+            view.setUint16(4, width, true);
+            view.setUint16(6, height, true);
 
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d', { willReadFrequently: true });
-        canvas.width = width;
-        canvas.height = height;
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d', { willReadFrequently: true });
+            canvas.width = width;
+            canvas.height = height;
 
-        for (let i = 0; i < totalFrames; i++) {
-            const { image } = await decoder.decode({ frameIndex: i });
-            ctx.clearRect(0, 0, width, height);
-            ctx.drawImage(image, 0, 0, width, height);
-            const rgba = ctx.getImageData(0, 0, width, height).data;
-            const frameOffset = 8 + (i * bytesPerFrame);
+            for (let i = 0; i < totalFrames; i++) {
+                const { image } = await decoder.decode({ frameIndex: i });
+                ctx.clearRect(0, 0, width, height); // no alpha in the format, transparency goes black
+                ctx.drawImage(image, 0, 0, width, height);
+                image.close();
+                const rgba = ctx.getImageData(0, 0, width, height).data;
+                const frameBit = (8 + (i * frameSize)) * 8;
 
-            for (let j = 0; j < width * height; j++) {
-                const r = rgba[j * 4];
-                const g = rgba[j * 4 + 1];
-                const b = rgba[j * 4 + 2];
-                const pixelPos = frameOffset + (j * bpp);
-
-                if (bpp === 1) {
-                    // RGB332
-                    uint8[pixelPos] = (r & 0xE0) | ((g & 0xE0) >> 3) | ((b & 0xC0) >> 6);
-                } else if (bpp === 2) {
-                    // RGB565
-                    uint8[pixelPos] = (r & 0xf8) | ((g & 0xE0) >> 5);
-                    uint8[pixelPos + 1] = ((g & 0x1C) << 5) | ((b & 0xF8) >> 3);
-                } else {
-                    // RGB888
-                    uint8[pixelPos] = r;
-                    uint8[pixelPos + 1] = g;
-                    uint8[pixelPos + 2] = b;
+                for (let j = 0; j < width * height; j++) {
+                    const pixel = codec.fromRGB(rgba[j * 4], rgba[j * 4 + 1], rgba[j * 4 + 2]);
+                    writeBits(uint8, frameBit + (j * codec.bits), codec.bits, pixel);
                 }
             }
-            image.close();
-        }
 
-        return new Blob([buffer], { type: 'application/octet-stream' });
+            return new Blob([buffer], { type: 'application/octet-stream' });
+        } finally {
+            decoder.close();
+        }
     }
 }

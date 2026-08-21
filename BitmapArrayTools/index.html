@@ -37,6 +37,11 @@
             background-color: #1f6391;
         }
 
+        button.active {
+            background-color: #1f6391;
+            box-shadow: 0 0 0 2px #ecf0f1;
+        }
+
         /* The Container for our frames */
         .frame-container {
             position: relative;
@@ -62,8 +67,8 @@
 <body>
 
     <nav>
-        <button id="btn-play" onclick="switchTab('player')">Player</button>
-        <button id="btn-conv" class="active" onclick="switchTab('converter')">Converter</button>
+        <button id="btn-play" class="active" onclick="switchTab('player')">Player</button>
+        <button id="btn-conv" onclick="switchTab('converter')">Converter</button>
     </nav>
 
     <div class="frame-container">

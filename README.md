@@ -14,9 +14,10 @@ This is a file format made for embedded devices such as Arduino Nano or ESP8266 
 
 ## Types
 
-| Type | bytes per pixel | addition | description |
+| Type | bits per pixel | addition | description |
 |---|---|---|---|
-| b1/b2/b3 | 1/2/3 | - | raw bitmap with set color depth |
+| b1/b2/b3 | 8/16/24 | - | raw bitmap with set color depth |
+| bw | 8 | - | raw grayscale bitmap |
 
 > [!NOTE]
-> B&W, monochrome, palette and other types will be implemented
+> Monochrome, palette and other types will be implemented

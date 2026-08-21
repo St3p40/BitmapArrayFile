@@ -1,8 +1,9 @@
 <!DOCTYPE html>
-<html lang="uk">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>GIF to .BNA (v1.1)</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GIF to .BNA converter</title>
     <link rel="stylesheet" href="styles.css">
     <script src="bitmap_array.js"></script>
 </head>
@@ -14,19 +15,19 @@
             <label>Choose GIF:</label>
             <input type="file" id="inputGif" accept="image/gif">
         </div>
-        <button id="btnConvert">Generate & download .BNA</button>
+        <button id="btnConvert">Generate and download .BNA</button>
         <div class="control-group" style="align-items: flex-end; display: flex;">
             <div style="flex: 1;">
             <label>Out width:</label>
-            <input type="number" id="w" value="16" min="1" title="Width">
+            <input type="number" id="w" value="16" min="1" max="65535" step="1" title="Width">
             </div>
             <div style="flex: 1;">
             <label>Out height:</label>
-            <input type="number" id="h" value="16" min="1" title="Height">
+            <input type="number" id="h" value="16" min="1" max="65535" step="1" title="Height">
             </div>
             <div style="flex: 1;">
-            <label>Bits per pixel:</label>
-            <input type="number" id="bpp" value="1" min="1" max="3" title="Bits Per Pixel">
+            <label>Pixel format:</label>
+            <select id="type" title="Pixel format"></select>
             </div>
         </div>
 
@@ -34,25 +35,46 @@
     </div>
 
     <script>
-        document.getElementById('btnConvert').onclick = async () => {
-            const fileInput = document.getElementById('inputGif');
-            const file = fileInput.files[0];
+        const statusEl = document.getElementById('status');
+        const btnConvert = document.getElementById('btnConvert');
+        const typeSelect = document.getElementById('type');
+
+        // every type in the table shows up here on its own
+        for (const [code, codec] of Object.entries(BNA_TYPES)) {
+            typeSelect.add(new Option(codec.name, code));
+        }
+
+        function setStatus(text, isError = false) {
+            statusEl.innerText = text;
+            statusEl.classList.toggle('error', isError);
+        }
+
+        btnConvert.onclick = async () => {
+            const file = document.getElementById('inputGif').files[0];
             if (!file) return alert("Choose a file!");
 
-            const bpp = parseInt(document.getElementById('bpp').value);
+            const type = typeSelect.value;
             const w = parseInt(document.getElementById('w').value);
             const h = parseInt(document.getElementById('h').value);
 
-            const type = bpp === 1 ? 'b1' : bpp === 2 ? 'b2' : bpp === 3 ? 'b3' : null;
-            if (!type) return alert("Bits per pixel must be 1, 2, or 3!");
-            const blob = await BnaEncoder.fromGif(file, w, h, type);
-            status.innerText = `Encoding...`;
+            btnConvert.disabled = true;
+            setStatus("Encoding...");
+            try {
+                const blob = await BnaEncoder.fromGif(file, w, h, type);
 
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(blob);
-            a.download = file.name.replace(/\.[^/.]+$/, "") + ".bna";
-            a.click();
-            status.innerText = "Done!";
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = file.name.replace(/\.[^/.]+$/, "") + ".bna";
+                a.click();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+                setStatus(`Done! ${w}x${h}, ${blob.size} bytes`);
+            } catch (err) {
+                setStatus(`Cannot convert ${file.name}: ${err.message}`, true);
+            } finally {
+                btnConvert.disabled = false;
+            }
         };
     </script>
 </body>
