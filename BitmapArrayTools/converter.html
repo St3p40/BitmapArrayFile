@@ -31,6 +31,10 @@
             </div>
         </div>
 
+        <div class="control-group">
+            <label><input type="checkbox" id="dither" checked> Dithering</label>
+        </div>
+
         <div class="info" id="status">Waiting for file...</div>
     </div>
 
@@ -60,7 +64,8 @@
             btnConvert.disabled = true;
             setStatus("Encoding...");
             try {
-                const blob = await BnaEncoder.fromImage(file, w, h, type);
+                const dither = document.getElementById('dither').checked;
+                const blob = await BnaEncoder.fromImage(file, w, h, type, dither);
 
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');

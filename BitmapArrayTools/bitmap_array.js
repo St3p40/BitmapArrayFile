@@ -38,6 +38,12 @@ const BNA_TYPES = {
         toRGB(pixel) { return [pixel, pixel, pixel] },
         fromRGB: (r, g, b) => ( Math.max(r, g, b))
     },
+    b0: {
+        bits: 1,
+        name: "1-bit BW",
+        toRGB(pixel) { return pixel ? [255, 255, 255] : [0, 0, 0] },
+        fromRGB: (r, g, b) => (Math.max(r, g, b) >= 128 ? 1 : 0)
+    },
     b1: {
         bits: 8,
         name: "8-bit RGB332",
@@ -163,6 +169,42 @@ class BnaPlayer {
     }
 }
 
+function ditherFrame(rgba, width, height, codec) {
+    const buf = new Array(width * height * 3);
+    for (let i = 0; i < width * height; i++) {
+        buf[i * 3] = rgba[i * 4];
+        buf[i * 3 + 1] = rgba[i * 4 + 1];
+        buf[i * 3 + 2] = rgba[i * 4 + 2];
+    }
+
+    const pixels = new Array(width * height);
+    const spread = [[1, 0, 7 / 16], [-1, 1, 3 / 16], [0, 1, 5 / 16], [1, 1, 1 / 16]];
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const at = (y * width + x) * 3;
+            const r = Math.min(255, Math.max(0, Math.round(buf[at])));
+            const g = Math.min(255, Math.max(0, Math.round(buf[at + 1])));
+            const b = Math.min(255, Math.max(0, Math.round(buf[at + 2])));
+
+            const pixel = codec.fromRGB(r, g, b);
+            const [qr, qg, qb] = codec.toRGB(pixel);
+            pixels[y * width + x] = pixel;
+
+            for (const [dx, dy, part] of spread) {
+                const nx = x + dx;
+                const ny = y + dy;
+                if (nx < 0 || nx >= width || ny >= height) continue;
+                const to = (ny * width + nx) * 3;
+                buf[to] += (r - qr) * part;
+                buf[to + 1] += (g - qg) * part;
+                buf[to + 2] += (b - qb) * part;
+            }
+        }
+    }
+    return pixels;
+}
+
 async function decoderHandles(type) {
     if (typeof ImageDecoder === 'undefined' || !type) return false;
     try {
@@ -207,8 +249,9 @@ class BnaEncoder {
      * @param {number} width - Target width
      * @param {number} height - Target height
      * @param {string} type - type code from BNA_TYPES, for example 'b1' (RGB332)
+     * @param {boolean} dither - spread the rounding error over the neighbours
      */
-    static async fromImage(file, width, height, type) {
+    static async fromImage(file, width, height, type, dither = false) {
         const codec = BNA_TYPES[type];
         if (!codec) throw new Error(`Unsupported type "${type}"`);
         if (!Number.isInteger(width) || !Number.isInteger(height)
@@ -245,8 +288,11 @@ class BnaEncoder {
                 const rgba = ctx.getImageData(0, 0, width, height).data;
                 const frameBit = (8 + (i * frameSize)) * 8;
 
+                const dithered = dither ? ditherFrame(rgba, width, height, codec) : null;
+
                 for (let j = 0; j < width * height; j++) {
-                    const pixel = codec.fromRGB(rgba[j * 4], rgba[j * 4 + 1], rgba[j * 4 + 2]);
+                    const pixel = dithered ? dithered[j]
+                        : codec.fromRGB(rgba[j * 4], rgba[j * 4 + 1], rgba[j * 4 + 2]);
                     writeBits(uint8, frameBit + (j * codec.bits), codec.bits, pixel);
                 }
             }
