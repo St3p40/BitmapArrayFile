@@ -1,10 +1,92 @@
-<!DOCTYPE html>
-<html>
+
+</html><!DOCTYPE html>
+<html lang="en">
 <head>
-    <title>Redirecting...</title>
-    <meta http-equiv="refresh" content="0;url=BitmapArrayTools/index.html">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bitmap array tools</title>
+    <style>
+        body, html { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: sans-serif; }
+
+        nav {
+            height: 60px;
+            background: #31455a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            position: relative;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        button {
+            padding: 10px 20px;
+            margin: 0 10px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #3498db;
+            color: white;
+        }
+
+        button:hover {
+            background-color: #2980b9;
+        }
+
+        button:active {
+            transform: scale(0.98);
+            background-color: #1f6391;
+        }
+
+        button.active {
+            background-color: #1f6391;
+            box-shadow: 0 0 0 2px #ecf0f1;
+        }
+
+        .frame-container {
+            position: relative;
+            height: calc(100vh - 60px);
+            width: 100%;
+        }
+
+        iframe {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            border: none;
+            visibility: hidden;
+        }
+
+        iframe.show {
+            visibility: visible;
+        }
+    </style>
 </head>
 <body>
-    <p>If you are not redirected automatically, follow this <a href="BitmapArrayTools/index.html">link to the new page</a>.</p>
+
+    <nav>
+        <button id="btn-play" class="active" onclick="switchTab('player')">Player</button>
+        <button id="btn-conv" onclick="switchTab('converter')">Converter</button>
+    </nav>
+
+    <div class="frame-container">
+        <iframe id="frame-converter" src="BitmapArrayTools/converter.html"></iframe>
+        <iframe id="frame-player" src="BitmapArrayTools/player.html" class="show"></iframe>
+    </div>
+
+    <script>
+        function switchTab(type) {
+            // 1. Handle Frame Visibility
+            document.getElementById('frame-converter').classList.toggle('show', type === 'converter');
+            document.getElementById('frame-player').classList.toggle('show', type === 'player');
+
+            // 2. Handle Button Styling
+            document.getElementById('btn-conv').classList.toggle('active', type === 'converter');
+            document.getElementById('btn-play').classList.toggle('active', type === 'player');
+        }
+    </script>
+
 </body>
 </html>
