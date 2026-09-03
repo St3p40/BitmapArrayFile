@@ -3,17 +3,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GIF to .BNA converter</title>
+    <title>Image to .BNA converter</title>
     <link rel="stylesheet" href="styles.css">
     <script src="bitmap_array.js"></script>
 </head>
 <body>
     <div id="container">
-        <h2>.GIF to .BNA Converter</h2>
+        <h2>Image to .BNA Converter</h2>
 
         <div class="control-group">
-            <label>Choose GIF:</label>
-            <input type="file" id="inputGif" accept="image/gif">
+            <label>Choose image:</label>
+            <input type="file" id="inputImage" accept="image/*">
         </div>
         <button id="btnConvert">Generate and download .BNA</button>
         <div class="control-group" style="align-items: flex-end; display: flex;">
@@ -50,7 +50,7 @@
         }
 
         btnConvert.onclick = async () => {
-            const file = document.getElementById('inputGif').files[0];
+            const file = document.getElementById('inputImage').files[0];
             if (!file) return alert("Choose a file!");
 
             const type = typeSelect.value;
@@ -60,7 +60,7 @@
             btnConvert.disabled = true;
             setStatus("Encoding...");
             try {
-                const blob = await BnaEncoder.fromGif(file, w, h, type);
+                const blob = await BnaEncoder.fromImage(file, w, h, type);
 
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
@@ -69,7 +69,8 @@
                 a.click();
                 setTimeout(() => URL.revokeObjectURL(url), 1000);
 
-                setStatus(`Done! ${w}x${h}, ${blob.size} bytes`);
+                const frames = (blob.size - 8) / frameBytes(w, h, BNA_TYPES[type].bits);
+                setStatus(`Done! ${w}x${h}, ${frames} frame${frames === 1 ? '' : 's'}, ${blob.size} bytes`);
             } catch (err) {
                 setStatus(`Cannot convert ${file.name}: ${err.message}`, true);
             } finally {

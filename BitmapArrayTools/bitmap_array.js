@@ -163,30 +163,63 @@ class BnaPlayer {
     }
 }
 
+async function decoderHandles(type) {
+    if (typeof ImageDecoder === 'undefined' || !type) return false;
+    try {
+        return await ImageDecoder.isTypeSupported(type);
+    } catch {
+        return false;
+    }
+}
+
+async function openImage(file) {
+    const type = file.type;
+
+    if (await decoderHandles(type)) {
+        const decoder = new ImageDecoder({ data: file.stream(), type });
+        try {
+            await decoder.completed;
+        } catch {
+            decoder.close();
+            throw new Error(`Cannot decode this ${type} file`);
+        }
+        return {
+            frames: decoder.tracks.selectedTrack.frameCount,
+            frame: async (i) => (await decoder.decode({ frameIndex: i })).image,
+            release: (image) => image.close(),
+            close: () => decoder.close()
+        };
+    }
+
+    const bitmap = await createImageBitmap(file);
+    return {
+        frames: 1,
+        frame: async () => bitmap,
+        release: () => {},
+        close: () => bitmap.close()
+    };
+}
+
 class BnaEncoder {
     /**
-     * Converts a GIF file to a BNA Blob
-     * @param {File} file - The GIF file
+     * Converts an image file to a BNA Blob, animated ones keep all their frames
+     * @param {File} file - GIF, PNG, WEBP, JPEG or anything else the browser decodes
      * @param {number} width - Target width
      * @param {number} height - Target height
      * @param {string} type - type code from BNA_TYPES, for example 'b1' (RGB332)
      */
-    static async fromGif(file, width, height, type) {
+    static async fromImage(file, width, height, type) {
         const codec = BNA_TYPES[type];
         if (!codec) throw new Error(`Unsupported type "${type}"`);
         if (!Number.isInteger(width) || !Number.isInteger(height)
             || width < 1 || height < 1 || width > 65535 || height > 65535) {
             throw new Error("Width and height must be 1-65535");
         }
-        if (typeof ImageDecoder === 'undefined') throw new Error("This browser has no ImageDecoder");
 
-        const decoder = new ImageDecoder({ data: file.stream(), type: "image/gif" });
+        const source = await openImage(file);
         try {
-            await decoder.completed;
-            const totalFrames = decoder.tracks.selectedTrack.frameCount;
-
             const frameSize = frameBytes(width, height, codec.bits);
-            const buffer = new ArrayBuffer(8 + (frameSize * totalFrames));
+            const buffer = new ArrayBuffer(8 + (frameSize * source.frames));
             const view = new DataView(buffer);
             const uint8 = new Uint8Array(buffer);
 
@@ -204,11 +237,11 @@ class BnaEncoder {
             canvas.width = width;
             canvas.height = height;
 
-            for (let i = 0; i < totalFrames; i++) {
-                const { image } = await decoder.decode({ frameIndex: i });
-                ctx.clearRect(0, 0, width, height); // no alpha in the format, transparency goes black
+            for (let i = 0; i < source.frames; i++) {
+                const image = await source.frame(i);
+                ctx.clearRect(0, 0, width, height);
                 ctx.drawImage(image, 0, 0, width, height);
-                image.close();
+                source.release(image);
                 const rgba = ctx.getImageData(0, 0, width, height).data;
                 const frameBit = (8 + (i * frameSize)) * 8;
 
@@ -220,7 +253,7 @@ class BnaEncoder {
 
             return new Blob([buffer], { type: 'application/octet-stream' });
         } finally {
-            decoder.close();
+            source.close();
         }
     }
 }

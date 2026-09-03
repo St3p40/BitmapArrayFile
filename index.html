@@ -78,11 +78,9 @@
 
     <script>
         function switchTab(type) {
-            // 1. Handle Frame Visibility
             document.getElementById('frame-converter').classList.toggle('show', type === 'converter');
             document.getElementById('frame-player').classList.toggle('show', type === 'player');
 
-            // 2. Handle Button Styling
             document.getElementById('btn-conv').classList.toggle('active', type === 'converter');
             document.getElementById('btn-play').classList.toggle('active', type === 'player');
         }
